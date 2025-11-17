@@ -1,0 +1,39 @@
+{
+  "name": "urban-hub_backend",
+  "version": "1.0.0",
+  "description": "urban-hub",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon src/index.js",
+    "seed:admin": "node src/scripts/seedAdmin.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TruwixTech/Urban-Hub_Backend.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/TruwixTech/Urban-Hub_Backend/issues"
+  },
+  "homepage": "https://github.com/TruwixTech/Urban-Hub_Backend#readme",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "csv-writer": "^1.6.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "imagekit": "^6.0.0",
+    "joi": "^18.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "mongodb": "^7.0.0",
+    "mongoose": "^8.19.3",
+    "multer": "^2.0.2",
+    "nodemailer": "^7.0.10",
+    "nodemon": "^3.1.11",
+    "puppeteer": "^24.30.0",
+    "qrcode": "^1.5.4"
+  }
+}
