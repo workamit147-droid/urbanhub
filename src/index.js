@@ -11,7 +11,11 @@ const app = express();
 
 app.use(
   cors({
-    origin: ["http://localhost:5173", "https://urban-hub-frontend.vercel.app"],
+    origin: [
+      "http://localhost:5173",
+      "https://urban-hub-frontend.vercel.app",
+      "https://urbanhub-front.vercel.app/",
+    ],
     credentials: true,
   })
 );
