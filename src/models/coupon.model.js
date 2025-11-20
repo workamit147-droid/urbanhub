@@ -104,7 +104,8 @@ couponSchema.methods.calculateDiscount = function (cartItems) {
   const applicableItems = [];
 
   cartItems.forEach((item) => {
-    if (applicableProductIds.includes(item.productId.toString())) {
+    const itemProductId = item.productId._id || item.productId;
+    if (applicableProductIds.includes(itemProductId.toString())) {
       const itemTotal = item.priceAtAdd * item.quantity;
       applicableSubtotal += itemTotal;
       applicableItems.push(item);

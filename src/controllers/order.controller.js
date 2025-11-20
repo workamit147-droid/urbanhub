@@ -1,34 +1,47 @@
 import Order from "../models/order.model.js";
 import Product from "../models/product.model.js";
+import Cart from "../models/cart.model.js";
 
 // CREATE ORDER
 export const createOrder = async (req, res) => {
   try {
-    const { items, shippingAddress, paymentMethod, notes, couponCode } =
-      req.body;
+    const { shippingAddress, paymentMethod, notes, couponCode } = req.body;
     const customerId = req.user.id; // Assuming auth middleware sets req.user
 
-    // Validate and calculate order items
+    // Get user's cart
+    const cart = await Cart.findOne({ userId: customerId }).populate(
+      "items.productId"
+    );
+
+    if (!cart || !cart.items || cart.items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Cart is empty",
+      });
+    }
+
+    // Validate and calculate order items from cart
     const orderItems = [];
     let subtotal = 0;
 
-    for (const item of items) {
-      const product = await Product.findById(item.productId);
+    for (const cartItem of cart.items) {
+      const product = cartItem.productId;
+
       if (!product) {
         return res.status(404).json({
           success: false,
-          message: `Product ${item.productId} not found`,
+          message: `Product not found in cart`,
         });
       }
 
-      if (!product.isActive || !product.isInStock(item.quantity)) {
+      if (!product.isActive || !product.isInStock(cartItem.quantity)) {
         return res.status(400).json({
           success: false,
           message: `Product ${product.title} is out of stock or unavailable`,
         });
       }
 
-      const total = product.price * item.quantity;
+      const total = cartItem.priceAtAdd * cartItem.quantity;
       subtotal += total;
 
       orderItems.push({
@@ -37,30 +50,81 @@ export const createOrder = async (req, res) => {
         slug: product.slug,
         image: product.images[0],
         attributes: product.attributes,
-        quantity: item.quantity,
-        price: product.price,
+        quantity: cartItem.quantity,
+        price: cartItem.priceAtAdd,
         total: total,
       });
     }
 
-    // Calculate totals (you can add tax, shipping logic here)
-    const shippingCost = subtotal > 1000 ? 0 : 100; // Free shipping above ₹1000
-    const taxAmount = Math.round(subtotal * 0.18); // 18% GST
-    const discountAmount = 0; // Add coupon logic here
-    const totalAmount = subtotal + shippingCost + taxAmount - discountAmount;
+    // Use cart totals if available, otherwise calculate
+    const finalSubtotal = cart.subtotal || subtotal;
+    const shippingCost = 0; // Free shipping for now
+    const taxAmount = 0; // No tax for now
+    const discountAmount = cart.discount || 0;
+    const totalAmount =
+      cart.finalTotal ||
+      finalSubtotal + shippingCost + taxAmount - discountAmount;
+
+    // Format shipping address to match schema
+    const formattedShippingAddress = {
+      fullName: shippingAddress.fullName,
+      phone: shippingAddress.phone,
+      email: shippingAddress.email,
+      addressLine1: shippingAddress.address, // Map 'address' to 'addressLine1'
+      addressLine2: "",
+      city: shippingAddress.city,
+      state: shippingAddress.state,
+      pincode: shippingAddress.pincode,
+      country: "India",
+    };
+
+    // Use shipping address as billing address (same for now)
+    const billingAddress = { ...formattedShippingAddress };
+
+    // Generate Order Number and ID
+    const count = await Order.countDocuments();
+    const orderNumber = `ORD${String(count + 1).padStart(6, "0")}`;
+
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+    const dailyCount = await Order.countDocuments({
+      createdAt: {
+        $gte: new Date(today.getFullYear(), today.getMonth(), today.getDate()),
+        $lt: new Date(
+          today.getFullYear(),
+          today.getMonth(),
+          today.getDate() + 1
+        ),
+      },
+    });
+    const orderId = `ORD-${dateStr}-${String(dailyCount + 1).padStart(6, "0")}`;
 
     const order = await Order.create({
+      orderId,
+      orderNumber,
       customerId,
       items: orderItems,
-      shippingAddress,
-      paymentMethod,
-      subtotal,
+      shippingAddress: formattedShippingAddress,
+      billingAddress: billingAddress,
+      payment: {
+        method: paymentMethod || "cod",
+        status: paymentMethod === "cod" ? "pending" : "pending",
+      },
+      subtotal: finalSubtotal,
       shippingCost,
       taxAmount,
       discountAmount,
       totalAmount,
-      notes,
-      couponCode,
+      coupon: cart.coupon
+        ? {
+            code: cart.coupon.code,
+            discount: cart.discount,
+            couponId: cart.coupon._id,
+          }
+        : undefined,
+      // Legacy fields for compatibility
+      paymentMethod: paymentMethod || "cod",
+      couponCode: cart.coupon?.code || couponCode,
     });
 
     // Reduce stock for ordered items
@@ -80,6 +144,7 @@ export const createOrder = async (req, res) => {
       order: populatedOrder,
     });
   } catch (err) {
+    console.error("Order creation error:", err);
     res.status(400).json({
       success: false,
       error: err.message,
@@ -92,38 +157,163 @@ export const getAllOrders = async (req, res) => {
   try {
     const {
       page = 1,
-      limit = 10,
+      limit = 20,
+      sort = "-createdAt",
+      q = "",
       status,
-      customer,
-      sortBy = "createdAt",
-      sortOrder = "desc",
+      paymentStatus,
+      fulfillmentStatus,
+      dateFrom,
+      dateTo,
+      paymentMethod,
+      minAmount,
+      maxAmount,
+      trackingNumber,
+      orderId,
+      customerEmail,
+      customerPhone,
+      archived,
     } = req.query;
 
-    const query = {};
-    if (status) query.status = status;
-    if (customer) query.customerId = customer;
+    // Build search query
+    let conditions = [];
 
-    const sortOptions = {};
-    sortOptions[sortBy] = sortOrder === "desc" ? -1 : 1;
+    // Archived filter
+    if (archived === "true") {
+      conditions.push({ isArchived: true });
+    } else {
+      conditions.push({
+        $or: [{ isArchived: { $exists: false } }, { isArchived: false }],
+      });
+    }
 
-    const orders = await Order.find(query)
-      .populate("customerId", "name email")
-      .populate("items.productId", "title images")
-      .sort(sortOptions)
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+    // Text search across multiple fields
+    if (q) {
+      const searchRegex = new RegExp(q, "i");
+      conditions.push({
+        $or: [
+          { orderId: searchRegex },
+          { orderNumber: searchRegex },
+          { "shippingAddress.fullName": searchRegex },
+          { "shippingAddress.email": searchRegex },
+          { "shippingAddress.phone": searchRegex },
+          { "items.title": searchRegex },
+          { "items.sku": searchRegex },
+        ],
+      });
+    }
 
-    const total = await Order.countDocuments(query);
+    // Specific field searches
+    if (orderId) conditions.push({ orderId: new RegExp(orderId, "i") });
+    if (customerEmail)
+      conditions.push({
+        "shippingAddress.email": new RegExp(customerEmail, "i"),
+      });
+    if (customerPhone)
+      conditions.push({
+        "shippingAddress.phone": new RegExp(customerPhone, "i"),
+      });
+    if (trackingNumber) {
+      conditions.push({
+        $or: [
+          { "fulfillment.trackingNumber": new RegExp(trackingNumber, "i") },
+          { trackingNumber: new RegExp(trackingNumber, "i") }, // Legacy field
+        ],
+      });
+    }
+
+    // Status filters
+    if (status) conditions.push({ status });
+    if (paymentStatus) {
+      conditions.push({
+        $or: [
+          { "payment.status": paymentStatus },
+          { paymentStatus: paymentStatus }, // Legacy field
+        ],
+      });
+    }
+    if (fulfillmentStatus)
+      conditions.push({ "fulfillment.status": fulfillmentStatus });
+    if (paymentMethod) {
+      conditions.push({
+        $or: [
+          { "payment.method": paymentMethod },
+          { paymentMethod: paymentMethod }, // Legacy field
+        ],
+      });
+    }
+
+    // Date range filter
+    if (dateFrom || dateTo) {
+      const dateCondition = {};
+      if (dateFrom) dateCondition.$gte = new Date(dateFrom);
+      if (dateTo) dateCondition.$lte = new Date(dateTo);
+      conditions.push({ createdAt: dateCondition });
+    }
+
+    // Amount range filter
+    if (minAmount || maxAmount) {
+      const amountCondition = {};
+      if (minAmount) amountCondition.$gte = parseFloat(minAmount);
+      if (maxAmount) amountCondition.$lte = parseFloat(maxAmount);
+      conditions.push({ totalAmount: amountCondition });
+    }
+
+    const searchQuery = conditions.length > 0 ? { $and: conditions } : {};
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Parse sort parameter
+    const sortObject = {};
+    const sortFields = sort.split(",");
+    sortFields.forEach((field) => {
+      if (field.startsWith("-")) {
+        sortObject[field.substring(1)] = -1;
+      } else {
+        sortObject[field] = 1;
+      }
+    });
+
+    // Execute query with population
+    const [orders, total] = await Promise.all([
+      Order.find(searchQuery)
+        .populate("customerId", "name email phone")
+        .populate("items.productId", "title slug sku")
+        .sort(sortObject)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Order.countDocuments(searchQuery),
+    ]);
+
+    // Calculate pagination info
+    const pages = Math.ceil(total / parseInt(limit));
 
     res.json({
       success: true,
-      orders,
-      pagination: {
-        currentPage: Number(page),
-        totalPages: Math.ceil(total / limit),
-        totalOrders: total,
-        hasNextPage: page * limit < total,
-        hasPrevPage: page > 1,
+      data: {
+        orders,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages,
+          hasNext: parseInt(page) < pages,
+          hasPrev: parseInt(page) > 1,
+        },
+        filters: {
+          q,
+          status,
+          paymentStatus,
+          fulfillmentStatus,
+          dateFrom,
+          dateTo,
+          paymentMethod,
+          minAmount,
+          maxAmount,
+          archived,
+        },
       },
     });
   } catch (err) {

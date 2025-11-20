@@ -33,65 +33,90 @@ export const getAllOrders = async (req, res) => {
     } = req.query;
 
     // Build search query
-    const searchQuery = { isArchived: archived === "true" };
+    let conditions = [];
+
+    // Archived filter
+    if (archived === "true") {
+      conditions.push({ isArchived: true });
+    } else {
+      conditions.push({
+        $or: [{ isArchived: { $exists: false } }, { isArchived: false }],
+      });
+    }
 
     // Text search across multiple fields
     if (q) {
       const searchRegex = new RegExp(q, "i");
-      searchQuery.$or = [
-        { orderId: searchRegex },
-        { orderNumber: searchRegex },
-        { "shippingAddress.fullName": searchRegex },
-        { "shippingAddress.email": searchRegex },
-        { "shippingAddress.phone": searchRegex },
-        { "items.title": searchRegex },
-        { "items.sku": searchRegex },
-      ];
+      conditions.push({
+        $or: [
+          { orderId: searchRegex },
+          { orderNumber: searchRegex },
+          { "shippingAddress.fullName": searchRegex },
+          { "shippingAddress.email": searchRegex },
+          { "shippingAddress.phone": searchRegex },
+          { "items.title": searchRegex },
+          { "items.sku": searchRegex },
+        ],
+      });
     }
 
     // Specific field searches
-    if (orderId) searchQuery.orderId = new RegExp(orderId, "i");
+    if (orderId) conditions.push({ orderId: new RegExp(orderId, "i") });
     if (customerEmail)
-      searchQuery["shippingAddress.email"] = new RegExp(customerEmail, "i");
+      conditions.push({
+        "shippingAddress.email": new RegExp(customerEmail, "i"),
+      });
     if (customerPhone)
-      searchQuery["shippingAddress.phone"] = new RegExp(customerPhone, "i");
+      conditions.push({
+        "shippingAddress.phone": new RegExp(customerPhone, "i"),
+      });
     if (trackingNumber) {
-      searchQuery.$or = [
-        { "fulfillment.trackingNumber": new RegExp(trackingNumber, "i") },
-        { trackingNumber: new RegExp(trackingNumber, "i") }, // Legacy field
-      ];
+      conditions.push({
+        $or: [
+          { "fulfillment.trackingNumber": new RegExp(trackingNumber, "i") },
+          { trackingNumber: new RegExp(trackingNumber, "i") }, // Legacy field
+        ],
+      });
     }
 
     // Status filters
-    if (status) searchQuery.status = status;
+    if (status) conditions.push({ status });
     if (paymentStatus) {
-      searchQuery.$or = [
-        { "payment.status": paymentStatus },
-        { paymentStatus: paymentStatus }, // Legacy field
-      ];
+      conditions.push({
+        $or: [
+          { "payment.status": paymentStatus },
+          { paymentStatus: paymentStatus }, // Legacy field
+        ],
+      });
     }
     if (fulfillmentStatus)
-      searchQuery["fulfillment.status"] = fulfillmentStatus;
+      conditions.push({ "fulfillment.status": fulfillmentStatus });
     if (paymentMethod) {
-      searchQuery.$or = [
-        { "payment.method": paymentMethod },
-        { paymentMethod: paymentMethod }, // Legacy field
-      ];
+      conditions.push({
+        $or: [
+          { "payment.method": paymentMethod },
+          { paymentMethod: paymentMethod }, // Legacy field
+        ],
+      });
     }
 
     // Date range filter
     if (dateFrom || dateTo) {
-      searchQuery.createdAt = {};
-      if (dateFrom) searchQuery.createdAt.$gte = new Date(dateFrom);
-      if (dateTo) searchQuery.createdAt.$lte = new Date(dateTo);
+      const dateCondition = {};
+      if (dateFrom) dateCondition.$gte = new Date(dateFrom);
+      if (dateTo) dateCondition.$lte = new Date(dateTo);
+      conditions.push({ createdAt: dateCondition });
     }
 
     // Amount range filter
     if (minAmount || maxAmount) {
-      searchQuery.totalAmount = {};
-      if (minAmount) searchQuery.totalAmount.$gte = parseFloat(minAmount);
-      if (maxAmount) searchQuery.totalAmount.$lte = parseFloat(maxAmount);
+      const amountCondition = {};
+      if (minAmount) amountCondition.$gte = parseFloat(minAmount);
+      if (maxAmount) amountCondition.$lte = parseFloat(maxAmount);
+      conditions.push({ totalAmount: amountCondition });
     }
+
+    const searchQuery = conditions.length > 0 ? { $and: conditions } : {};
 
     // Calculate pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);

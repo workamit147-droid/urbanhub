@@ -91,9 +91,11 @@ export const addToCart = async (req, res) => {
     const cart = await getOrCreateCart(userId, sessionId);
 
     // Check existing quantity in cart
-    const existingItem = cart.items.find(
-      (item) => item.productId.toString() === productId
-    );
+    // Note: cart.items.productId might be populated (object) or just ObjectId
+    const existingItem = cart.items.find((item) => {
+      const itemProductId = item.productId._id || item.productId;
+      return itemProductId.toString() === productId.toString();
+    });
     const existingQuantity = existingItem ? existingItem.quantity : 0;
 
     // Validate stock
@@ -136,8 +138,8 @@ export const addToCart = async (req, res) => {
     res.json({
       success: true,
       message: existingItem
-        ? "Cart item quantity updated"
-        : "Item added to cart",
+        ? `Quantity updated! Added ${quantity} more to cart`
+        : `${quantity} item${quantity > 1 ? 's' : ''} added to cart`,
       cart: populatedCart,
     });
   } catch (error) {

@@ -99,8 +99,8 @@ export const getUserById = async (req, res) => {
     }
 
     // Get user's orders
-    const orders = await Order.find({ user: req.params.id })
-      .populate("items.product")
+    const orders = await Order.find({ customerId: req.params.id })
+      .populate("items.productId")
       .sort({ createdAt: -1 })
       .limit(5);
 
@@ -372,8 +372,8 @@ export const getOrders = async (req, res) => {
     let query = {};
     if (search) {
       query.$or = [
-        { id: { $regex: search, $options: "i" } },
-        { "user.name": { $regex: search, $options: "i" } },
+        { orderId: { $regex: search, $options: "i" } },
+        { orderNumber: { $regex: search, $options: "i" } },
       ];
     }
     if (status !== "all") {
@@ -381,7 +381,7 @@ export const getOrders = async (req, res) => {
     }
 
     const orders = await Order.find(query)
-      .populate("user", "name email")
+      .populate("customerId", "name email")
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
@@ -405,8 +405,8 @@ export const getOrders = async (req, res) => {
 export const getOrderById = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
-      .populate("user", "name email phone")
-      .populate("items.product", "name price");
+      .populate("customerId", "name email phone")
+      .populate("items.productId", "title price");
 
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
@@ -437,7 +437,7 @@ export const updateOrderStatus = async (req, res) => {
       req.params.id,
       { status },
       { new: true }
-    ).populate("user", "name email");
+    ).populate("customerId", "name email");
 
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
@@ -536,7 +536,7 @@ export const generateReport = async (req, res) => {
             $lte: new Date(endDate),
           };
         }
-        data = await Order.find(query).populate("user", "name email");
+        data = await Order.find(query).populate("customerId", "name email");
         filename = "orders-report.csv";
         break;
       case "products":

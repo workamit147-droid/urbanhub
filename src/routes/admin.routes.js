@@ -52,12 +52,6 @@ router.post("/products", createProduct);
 router.put("/products/:id", updateProduct);
 router.delete("/products/:id", deleteProduct);
 
-// Orders Management
-router.get("/orders", getOrders);
-router.get("/orders/analytics", getOrdersAnalytics);
-router.get("/orders/:id", getOrderById);
-router.patch("/orders/:id/status", updateOrderStatus);
-
 // Devices Management
 router.get("/devices", getDevices);
 router.get("/devices/:id", getDeviceById);

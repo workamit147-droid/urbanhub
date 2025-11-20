@@ -152,9 +152,11 @@ cartSchema.methods.calculateFinalTotal = function () {
 
 // Method to add item to cart
 cartSchema.methods.addItem = function (productData, quantity, price) {
-  const existingItemIndex = this.items.findIndex(
-    (item) => item.productId.toString() === productData._id.toString()
-  );
+  const existingItemIndex = this.items.findIndex((item) => {
+    const itemProductId = item.productId._id || item.productId;
+    const newProductId = productData._id;
+    return itemProductId.toString() === newProductId.toString();
+  });
 
   if (existingItemIndex > -1) {
     // Update existing item quantity
@@ -202,11 +204,12 @@ cartSchema.methods.removeItem = function (itemId) {
 
   // Remove coupon if no applicable products remain
   if (this.coupon && this.items.length > 0) {
-    const hasApplicableProducts = this.items.some((item) =>
-      this.coupon.applicableProducts.some(
-        (productId) => productId.toString() === item.productId.toString()
-      )
-    );
+    const hasApplicableProducts = this.items.some((item) => {
+      const itemProductId = item.productId._id || item.productId;
+      return this.coupon.applicableProducts.some(
+        (productId) => productId.toString() === itemProductId.toString()
+      );
+    });
 
     if (!hasApplicableProducts) {
       this.coupon = null;
@@ -253,9 +256,11 @@ cartSchema.methods.mergeWith = function (otherCart) {
   if (!otherCart || !otherCart.items) return this;
 
   otherCart.items.forEach((otherItem) => {
-    const existingItemIndex = this.items.findIndex(
-      (item) => item.productId.toString() === otherItem.productId.toString()
-    );
+    const existingItemIndex = this.items.findIndex((item) => {
+      const itemProductId = item.productId._id || item.productId;
+      const otherItemProductId = otherItem.productId._id || otherItem.productId;
+      return itemProductId.toString() === otherItemProductId.toString();
+    });
 
     if (existingItemIndex > -1) {
       // Sum quantities, keep the latest price
